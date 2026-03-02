@@ -10,14 +10,13 @@ import {
 } from '../constants';
 import { PIECES, randomPiece, type Piece } from '../pieces';
 
-// Board cell stores piece index+1 (0 = empty)
 type Board = number[][];
 
 interface ActivePiece {
   pieceIndex: number;
   rotation: number;
-  x: number;  // board col
-  y: number;  // board row
+  x: number;
+  y: number;
 }
 
 function emptyBoard(): Board {
@@ -29,9 +28,7 @@ function getMatrix(p: ActivePiece): number[][] {
 }
 
 function collides(board: Board, p: ActivePiece, dx = 0, dy = 0, rot?: number): boolean {
-  const matrix = rot !== undefined
-    ? PIECES[p.pieceIndex].shape[rot]
-    : getMatrix(p);
+  const matrix = rot !== undefined ? PIECES[p.pieceIndex].shape[rot] : getMatrix(p);
   for (let r = 0; r < matrix.length; r++) {
     for (let c = 0; c < matrix[r].length; c++) {
       if (!matrix[r][c]) continue;
@@ -48,37 +45,44 @@ export class GameScene extends Phaser.Scene {
   private board!: Board;
   private gfx!: Phaser.GameObjects.Graphics;
   private glowGfx!: Phaser.GameObjects.Graphics;
+  private animGfx!: Phaser.GameObjects.Graphics;
 
   private active!: ActivePiece;
   private nextIndex!: number;
-  private holdIndex: number = -1;
-  private holdUsed: boolean = false;
+  private holdIndex = -1;
+  private holdUsed = false;
 
-  private score: number = 0;
-  private level: number = 1;
-  private lines: number = 0;
+  private score = 0;
+  private level = 1;
+  private lines = 0;
 
   private gravityTimer!: Phaser.Time.TimerEvent;
-  private gravityMs: number = GRAVITY_BASE;
+  private gravityMs = GRAVITY_BASE;
 
-  // Sidebar text objects
   private txtScore!: Phaser.GameObjects.Text;
   private txtLevel!: Phaser.GameObjects.Text;
   private txtLines!: Phaser.GameObjects.Text;
 
-  // DAS state
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keyZ!: Phaser.Input.Keyboard.Key;
   private keyShift!: Phaser.Input.Keyboard.Key;
   private keySpace!: Phaser.Input.Keyboard.Key;
+  private keyP!: Phaser.Input.Keyboard.Key;
 
-  private dasLeft: number = 0;
-  private dasRight: number = 0;
-  private dasDown: number = 0;
-  private dasLeftActive: boolean = false;
-  private dasRightActive: boolean = false;
+  private dasLeft = 0;
+  private dasRight = 0;
+  private dasDown = 0;
+  private dasLeftActive = false;
+  private dasRightActive = false;
 
-  private gameOver: boolean = false;
+  private gameOver = false;
+  private animating = false;
+  private paused = false;
+
+  private lockFlashing = false;
+  private lockFlashCells: Array<{ col: number; row: number }> = [];
+
+  private pauseOverlay!: Phaser.GameObjects.Container;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -86,6 +90,9 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     this.gameOver = false;
+    this.animating = false;
+    this.paused = false;
+    this.lockFlashing = false;
     this.board = emptyBoard();
     this.score = 0;
     this.level = 1;
@@ -93,25 +100,27 @@ export class GameScene extends Phaser.Scene {
     this.holdIndex = -1;
     this.holdUsed = false;
 
-    // Graphics layers: glow behind, main on top
     this.glowGfx = this.add.graphics();
     this.gfx = this.add.graphics();
+    this.animGfx = this.add.graphics().setDepth(10);
 
     this.drawBoardOutline();
     this.buildSidebar();
+    this.buildPauseOverlay();
     this.drawScanlines();
 
-    // Input
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.keyZ = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.Z);
     this.keyShift = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     this.keySpace = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.keyP = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.P);
 
-    // One-shot key events for rotate / hold / hard-drop
-    this.cursors.up.on('down', () => this.tryRotate());
-    this.keyZ.on('down', () => this.tryRotate());
-    this.keySpace.on('down', () => this.hardDrop());
-    this.keyShift.on('down', () => this.tryHold());
+    this.cursors.up.on('down', () => { if (!this.animating && !this.paused) this.tryRotate(); });
+    this.keyZ.on('down', () => { if (!this.animating && !this.paused) this.tryRotate(); });
+    this.keySpace.on('down', () => { if (!this.animating && !this.paused) this.hardDrop(); });
+    this.keyShift.on('down', () => { if (!this.animating && !this.paused) this.tryHold(); });
+    this.keyP.on('down', () => { if (!this.animating && !this.gameOver) this.togglePause(); });
+    this.input.keyboard!.on('keydown-ESC', () => { if (!this.animating && !this.gameOver) this.togglePause(); });
 
     this.nextIndex = randomPiece();
     this.spawnPiece();
@@ -119,8 +128,39 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    if (this.gameOver) return;
+    if (this.gameOver || this.animating || this.paused) return;
     this.handleDAS(delta);
+  }
+
+  // ─── Pause ─────────────────────────────────────────────────────────────────
+
+  private togglePause(): void {
+    this.paused = !this.paused;
+    this.gravityTimer.paused = this.paused;
+    this.pauseOverlay.setVisible(this.paused);
+  }
+
+  private buildPauseOverlay(): void {
+    const cx = BOARD_X + (COLS * CELL) / 2;
+    const cy = BOARD_Y + (ROWS * CELL) / 2;
+
+    const bg = this.add.rectangle(0, 0, COLS * CELL, ROWS * CELL, 0x000000, 0.7);
+    const txt = this.add.text(0, -20, 'PAUSED', {
+      fontFamily: '"Share Tech Mono", monospace',
+      fontSize: '36px',
+      color: '#00d4ff',
+      stroke: '#00d4ff',
+      strokeThickness: 1,
+      shadow: { offsetX: 0, offsetY: 0, color: '#00d4ff', blur: 20, fill: true },
+    }).setOrigin(0.5);
+    const hint = this.add.text(0, 30, 'P  OR  ESC  TO  RESUME', {
+      fontFamily: '"Share Tech Mono", monospace',
+      fontSize: '13px',
+      color: '#445566',
+    }).setOrigin(0.5);
+
+    this.pauseOverlay = this.add.container(cx, cy, [bg, txt, hint]);
+    this.pauseOverlay.setDepth(50).setVisible(false);
   }
 
   // ─── Gravity ───────────────────────────────────────────────────────────────
@@ -137,12 +177,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private tick(): void {
+    if (this.animating || this.paused) return;
     if (!collides(this.board, this.active, 0, 1)) {
       this.active.y++;
+      this.render();
     } else {
       this.lockPiece();
     }
-    this.render();
   }
 
   // ─── Piece lifecycle ───────────────────────────────────────────────────────
@@ -161,29 +202,57 @@ export class GameScene extends Phaser.Scene {
 
     if (collides(this.board, this.active)) {
       this.triggerGameOver();
+      return;
     }
     this.render();
   }
 
   private lockPiece(): void {
     const matrix = getMatrix(this.active);
+    const pieceIdx = this.active.pieceIndex;
+    this.lockFlashCells = [];
+
     for (let r = 0; r < matrix.length; r++) {
       for (let c = 0; c < matrix[r].length; c++) {
         if (!matrix[r][c]) continue;
         const ny = this.active.y + r;
         const nx = this.active.x + c;
         if (ny >= 0) {
-          this.board[ny][nx] = this.active.pieceIndex + 1;
+          this.board[ny][nx] = pieceIdx + 1;
+          this.lockFlashCells.push({ col: nx, row: ny });
         }
       }
     }
-    this.clearLines();
-    this.spawnPiece();
+
+    this.lockFlashing = true;
+    this.animating = true;
+    this.gravityTimer.paused = true;
+    this.render();
+
+    this.time.delayedCall(80, () => {
+      this.lockFlashing = false;
+      this.afterLock();
+    });
+  }
+
+  private afterLock(): void {
+    const fullRows = this.findFullRows();
+    if (fullRows.length > 0) {
+      this.playLineClearAnim(fullRows, () => {
+        this.doLineClear(fullRows);
+        this.animating = false;
+        this.spawnPiece();
+        this.resetGravity();
+      });
+    } else {
+      this.animating = false;
+      this.spawnPiece();
+      this.resetGravity();
+    }
   }
 
   private tryRotate(): void {
     const nextRot = (this.active.rotation + 1) % 4;
-    // Basic wall kick: try center, then ±1, ±2
     const kicks = [0, -1, 1, -2, 2];
     for (const kick of kicks) {
       if (!collides(this.board, this.active, kick, 0, nextRot)) {
@@ -199,6 +268,7 @@ export class GameScene extends Phaser.Scene {
     while (!collides(this.board, this.active, 0, 1)) {
       this.active.y++;
     }
+    this.cameras.main.shake(60, 0.004);
     this.lockPiece();
   }
 
@@ -224,26 +294,112 @@ export class GameScene extends Phaser.Scene {
 
   // ─── Line clearing ─────────────────────────────────────────────────────────
 
-  private clearLines(): void {
-    let cleared = 0;
-    for (let r = ROWS - 1; r >= 0; r--) {
-      if (this.board[r].every(cell => cell !== 0)) {
-        this.board.splice(r, 1);
-        this.board.unshift(new Array(COLS).fill(0));
-        cleared++;
-        r++; // recheck same row index
-      }
+  private findFullRows(): number[] {
+    const full: number[] = [];
+    for (let r = 0; r < ROWS; r++) {
+      if (this.board[r].every(cell => cell !== 0)) full.push(r);
     }
-    if (cleared === 0) return;
+    return full;
+  }
 
+  private doLineClear(rows: number[]): void {
+    const sorted = [...rows].sort((a, b) => b - a);
+    for (const r of sorted) {
+      this.board.splice(r, 1);
+      this.board.unshift(new Array(COLS).fill(0));
+    }
+    const cleared = rows.length;
     this.lines += cleared;
     this.score += (SCORE_TABLE[cleared] ?? 800) * this.level;
     const newLevel = Math.floor(this.lines / LINES_PER_LEVEL) + 1;
     if (newLevel > this.level) {
       this.level = newLevel;
-      this.resetGravity();
     }
     this.updateSidebarText();
+  }
+
+  // ─── Animations ────────────────────────────────────────────────────────────
+
+  private playLineClearAnim(rows: number[], callback: () => void): void {
+    const is4Line = rows.length === 4;
+    const duration = is4Line ? 340 : 200;
+    const pieceColor = PIECES[this.board[rows[0]].find(c => c !== 0)! - 1]?.color ?? 0xffffff;
+
+    if (is4Line) {
+      this.cameras.main.shake(260, 0.007);
+      this.cameras.main.flash(220, 160, 0, 255, true);
+      this.showChromaBlast();
+    }
+
+    this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration,
+      ease: 'Linear',
+      onUpdate: (tween) => {
+        const t = tween.getValue() as number;
+        this.animGfx.clear();
+
+        rows.forEach(r => {
+          let color: number;
+          let alpha: number;
+
+          if (is4Line) {
+            // Rapid triple flicker: white → piece color → white → fade
+            const phase = (t * 3) % 1;
+            if (phase < 0.4) {
+              color = 0xffffff;
+              alpha = 0.95;
+            } else if (phase < 0.7) {
+              color = pieceColor;
+              alpha = 0.85;
+            } else {
+              color = 0xffffff;
+              alpha = 0.7 * (1 - t);
+            }
+          } else {
+            // Single smooth sine flash
+            color = 0xffffff;
+            alpha = Math.sin(t * Math.PI) * 0.85;
+          }
+
+          this.animGfx.fillStyle(color, alpha);
+          this.animGfx.fillRect(BOARD_X, BOARD_Y + r * CELL, COLS * CELL, CELL);
+
+          // Bright center line
+          this.animGfx.fillStyle(0xffffff, Math.min(1, alpha * 1.2));
+          this.animGfx.fillRect(BOARD_X, BOARD_Y + r * CELL + Math.floor(CELL / 2) - 1, COLS * CELL, 2);
+        });
+      },
+      onComplete: () => {
+        this.animGfx.clear();
+        callback();
+      },
+    });
+  }
+
+  private showChromaBlast(): void {
+    const cx = BOARD_X + (COLS * CELL) / 2;
+    const cy = BOARD_Y + (ROWS * CELL) / 2;
+
+    const txt = this.add.text(cx, cy, 'CHROMABLAST!', {
+      fontFamily: '"Share Tech Mono", monospace',
+      fontSize: '26px',
+      color: '#ffffff',
+      stroke: '#bf00ff',
+      strokeThickness: 3,
+      shadow: { offsetX: 0, offsetY: 0, color: '#bf00ff', blur: 28, fill: true },
+    }).setOrigin(0.5).setDepth(20);
+
+    this.tweens.add({
+      targets: txt,
+      scaleX: 1.6,
+      scaleY: 1.6,
+      alpha: 0,
+      duration: 480,
+      ease: 'Power2.Out',
+      onComplete: () => txt.destroy(),
+    });
   }
 
   // ─── DAS input ────────────────────────────────────────────────────────────
@@ -253,7 +409,6 @@ export class GameScene extends Phaser.Scene {
     const right = this.cursors.right.isDown;
     const down = this.cursors.down.isDown;
 
-    // Left
     if (left && !right) {
       if (!this.dasLeftActive) {
         this.dasLeft = 0;
@@ -271,7 +426,6 @@ export class GameScene extends Phaser.Scene {
       this.dasLeft = 0;
     }
 
-    // Right
     if (right && !left) {
       if (!this.dasRightActive) {
         this.dasRight = 0;
@@ -289,7 +443,6 @@ export class GameScene extends Phaser.Scene {
       this.dasRight = 0;
     }
 
-    // Soft drop
     if (down) {
       this.dasDown += delta;
       if (this.dasDown >= 50) {
@@ -321,35 +474,26 @@ export class GameScene extends Phaser.Scene {
     this.drawBoardOutline();
     this.drawGrid();
     this.drawLockedCells();
-    this.drawGhostPiece();
-    this.drawActivePiece();
+    if (!this.lockFlashing) {
+      this.drawGhostPiece();
+      this.drawActivePiece();
+    }
     this.drawNextPiece();
     this.drawHoldPiece();
   }
 
   private drawBoardOutline(): void {
     this.gfx.lineStyle(1, 0x222244, 1);
-    this.gfx.strokeRect(
-      BOARD_X - 1,
-      BOARD_Y - 1,
-      COLS * CELL + 2,
-      ROWS * CELL + 2,
-    );
+    this.gfx.strokeRect(BOARD_X - 1, BOARD_Y - 1, COLS * CELL + 2, ROWS * CELL + 2);
   }
 
   private drawGrid(): void {
     this.gfx.lineStyle(1, 0x111122, 0.4);
     for (let c = 1; c < COLS; c++) {
-      this.gfx.lineBetween(
-        BOARD_X + c * CELL, BOARD_Y,
-        BOARD_X + c * CELL, BOARD_Y + ROWS * CELL,
-      );
+      this.gfx.lineBetween(BOARD_X + c * CELL, BOARD_Y, BOARD_X + c * CELL, BOARD_Y + ROWS * CELL);
     }
     for (let r = 1; r < ROWS; r++) {
-      this.gfx.lineBetween(
-        BOARD_X, BOARD_Y + r * CELL,
-        BOARD_X + COLS * CELL, BOARD_Y + r * CELL,
-      );
+      this.gfx.lineBetween(BOARD_X, BOARD_Y + r * CELL, BOARD_X + COLS * CELL, BOARD_Y + r * CELL);
     }
   }
 
@@ -359,7 +503,8 @@ export class GameScene extends Phaser.Scene {
         const idx = this.board[r][c];
         if (!idx) continue;
         const piece = PIECES[idx - 1];
-        this.drawCell(c, r, piece.color, piece.colorStr, 1);
+        const flashing = this.lockFlashing && this.lockFlashCells.some(fc => fc.col === c && fc.row === r);
+        this.drawCell(c, r, piece.color, flashing);
       }
     }
   }
@@ -370,7 +515,7 @@ export class GameScene extends Phaser.Scene {
     for (let r = 0; r < matrix.length; r++) {
       for (let c = 0; c < matrix[r].length; c++) {
         if (!matrix[r][c]) continue;
-        this.drawCell(this.active.x + c, this.active.y + r, piece.color, piece.colorStr, 1);
+        this.drawCell(this.active.x + c, this.active.y + r, piece.color, false);
       }
     }
   }
@@ -390,40 +535,45 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private drawCell(col: number, row: number, color: number, _colorStr: string, _alpha: number): void {
+  private drawCell(col: number, row: number, color: number, flash: boolean): void {
     const px = BOARD_X + col * CELL;
     const py = BOARD_Y + row * CELL;
     const inset = 2;
 
-    // Glow: slightly larger, blurred look via alpha layers
-    this.glowGfx.lineStyle(4, color, 0.15);
-    this.glowGfx.strokeRect(px + inset - 2, py + inset - 2, CELL - inset * 2 + 4, CELL - inset * 2 + 4);
-    this.glowGfx.lineStyle(2, color, 0.3);
-    this.glowGfx.strokeRect(px + inset - 1, py + inset - 1, CELL - inset * 2 + 2, CELL - inset * 2 + 2);
+    if (flash) {
+      // Bright white burst on lock
+      this.glowGfx.lineStyle(8, color, 0.35);
+      this.glowGfx.strokeRect(px + inset - 4, py + inset - 4, CELL - inset * 2 + 8, CELL - inset * 2 + 8);
+      this.glowGfx.lineStyle(4, 0xffffff, 0.5);
+      this.glowGfx.strokeRect(px + inset - 2, py + inset - 2, CELL - inset * 2 + 4, CELL - inset * 2 + 4);
 
-    // Inner subtle fill
-    this.gfx.fillStyle(color, 0.08);
-    this.gfx.fillRect(px + inset, py + inset, CELL - inset * 2, CELL - inset * 2);
+      this.gfx.fillStyle(0xffffff, 0.55);
+      this.gfx.fillRect(px + inset, py + inset, CELL - inset * 2, CELL - inset * 2);
+      this.gfx.lineStyle(2, 0xffffff, 1);
+      this.gfx.strokeRect(px + inset, py + inset, CELL - inset * 2, CELL - inset * 2);
+    } else {
+      // Normal neon hollow block
+      this.glowGfx.lineStyle(4, color, 0.15);
+      this.glowGfx.strokeRect(px + inset - 2, py + inset - 2, CELL - inset * 2 + 4, CELL - inset * 2 + 4);
+      this.glowGfx.lineStyle(2, color, 0.3);
+      this.glowGfx.strokeRect(px + inset - 1, py + inset - 1, CELL - inset * 2 + 2, CELL - inset * 2 + 2);
 
-    // Crisp outline
-    this.gfx.lineStyle(1.5, color, 1);
-    this.gfx.strokeRect(px + inset, py + inset, CELL - inset * 2, CELL - inset * 2);
+      this.gfx.fillStyle(color, 0.08);
+      this.gfx.fillRect(px + inset, py + inset, CELL - inset * 2, CELL - inset * 2);
+      this.gfx.lineStyle(1.5, color, 1);
+      this.gfx.strokeRect(px + inset, py + inset, CELL - inset * 2, CELL - inset * 2);
 
-    // Corner accents
-    const cornerSize = 4;
-    this.gfx.lineStyle(1.5, color, 1);
-    // top-left
-    this.gfx.lineBetween(px + inset, py + inset, px + inset + cornerSize, py + inset);
-    this.gfx.lineBetween(px + inset, py + inset, px + inset, py + inset + cornerSize);
-    // top-right
-    this.gfx.lineBetween(px + CELL - inset, py + inset, px + CELL - inset - cornerSize, py + inset);
-    this.gfx.lineBetween(px + CELL - inset, py + inset, px + CELL - inset, py + inset + cornerSize);
-    // bottom-left
-    this.gfx.lineBetween(px + inset, py + CELL - inset, px + inset + cornerSize, py + CELL - inset);
-    this.gfx.lineBetween(px + inset, py + CELL - inset, px + inset, py + CELL - inset - cornerSize);
-    // bottom-right
-    this.gfx.lineBetween(px + CELL - inset, py + CELL - inset, px + CELL - inset - cornerSize, py + CELL - inset);
-    this.gfx.lineBetween(px + CELL - inset, py + CELL - inset, px + CELL - inset, py + CELL - inset - cornerSize);
+      const cs = 4;
+      this.gfx.lineStyle(1.5, color, 1);
+      this.gfx.lineBetween(px + inset,        py + inset,        px + inset + cs,      py + inset);
+      this.gfx.lineBetween(px + inset,        py + inset,        px + inset,           py + inset + cs);
+      this.gfx.lineBetween(px + CELL - inset, py + inset,        px + CELL - inset - cs, py + inset);
+      this.gfx.lineBetween(px + CELL - inset, py + inset,        px + CELL - inset,    py + inset + cs);
+      this.gfx.lineBetween(px + inset,        py + CELL - inset, px + inset + cs,      py + CELL - inset);
+      this.gfx.lineBetween(px + inset,        py + CELL - inset, px + inset,           py + CELL - inset - cs);
+      this.gfx.lineBetween(px + CELL - inset, py + CELL - inset, px + CELL - inset - cs, py + CELL - inset);
+      this.gfx.lineBetween(px + CELL - inset, py + CELL - inset, px + CELL - inset,    py + CELL - inset - cs);
+    }
   }
 
   private drawCellGhost(col: number, row: number, color: number): void {
@@ -437,7 +587,7 @@ export class GameScene extends Phaser.Scene {
   // ─── Sidebar ───────────────────────────────────────────────────────────────
 
   private buildSidebar(): void {
-    const textStyle: Phaser.Types.GameObjects.Text.TextStyle = {
+    const labelStyle: Phaser.Types.GameObjects.Text.TextStyle = {
       fontFamily: '"Share Tech Mono", monospace',
       fontSize: '13px',
       color: '#555577',
@@ -448,21 +598,21 @@ export class GameScene extends Phaser.Scene {
       color: '#00d4ff',
       shadow: { offsetX: 0, offsetY: 0, color: '#00d4ff', blur: 8, fill: true },
     };
-
     const sx = SIDEBAR_X;
 
-    this.add.text(sx, 14, 'SCORE', textStyle);
-    this.txtScore = this.add.text(sx, 30, '0', valueStyle);
-
-    this.add.text(sx, 90, 'LEVEL', textStyle);
+    this.add.text(sx, 14,  'SCORE', labelStyle);
+    this.txtScore = this.add.text(sx, 30,  '0', valueStyle);
+    this.add.text(sx, 90,  'LEVEL', labelStyle);
     this.txtLevel = this.add.text(sx, 106, '1', valueStyle);
-
-    this.add.text(sx, 160, 'LINES', textStyle);
+    this.add.text(sx, 160, 'LINES', labelStyle);
     this.txtLines = this.add.text(sx, 176, '0', valueStyle);
-
-    // Labels for next/hold drawn statically
-    this.add.text(sx, 240, 'NEXT', { ...textStyle });
-    this.add.text(sx, 360, 'HOLD', { ...textStyle });
+    this.add.text(sx, 240, 'NEXT',  labelStyle);
+    this.add.text(sx, 360, 'HOLD',  labelStyle);
+    this.add.text(sx, CANVAS_HEIGHT - 30, '[ P ] PAUSE', {
+      fontFamily: '"Share Tech Mono", monospace',
+      fontSize: '11px',
+      color: '#333355',
+    });
   }
 
   private updateSidebarText(): void {
