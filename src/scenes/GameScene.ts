@@ -268,7 +268,6 @@ export class GameScene extends Phaser.Scene {
     while (!collides(this.board, this.active, 0, 1)) {
       this.active.y++;
     }
-    this.cameras.main.shake(60, 0.004);
     this.lockPiece();
   }
 
@@ -323,11 +322,13 @@ export class GameScene extends Phaser.Scene {
   private playLineClearAnim(rows: number[], callback: () => void): void {
     const is4Line = rows.length === 4;
     const duration = is4Line ? 340 : 200;
-    const pieceColor = PIECES[this.board[rows[0]].find(c => c !== 0)! - 1]?.color ?? 0xffffff;
+    const neonPalette = PIECES.map(p => p.color);
+    // Pick the dominant row color for single-clear tint
+    const rowColor = PIECES[this.board[rows[0]].find(c => c !== 0)! - 1]?.color ?? 0x00d4ff;
 
     if (is4Line) {
-      this.cameras.main.shake(260, 0.007);
-      this.cameras.main.flash(220, 160, 0, 255, true);
+      this.cameras.main.shake(220, 0.005);
+      this.cameras.main.flash(180, 100, 0, 200, true); // softer violet flash
       this.showChromaBlast();
     }
 
@@ -340,34 +341,28 @@ export class GameScene extends Phaser.Scene {
         const t = tween.getValue() as number;
         this.animGfx.clear();
 
-        rows.forEach(r => {
+        rows.forEach((r, rowIdx) => {
           let color: number;
           let alpha: number;
 
           if (is4Line) {
-            // Rapid triple flicker: white → piece color → white → fade
-            const phase = (t * 3) % 1;
-            if (phase < 0.4) {
-              color = 0xffffff;
-              alpha = 0.95;
-            } else if (phase < 0.7) {
-              color = pieceColor;
-              alpha = 0.85;
-            } else {
-              color = 0xffffff;
-              alpha = 0.7 * (1 - t);
-            }
+            // Rapid rainbow cycle through all neon colors, each row offset
+            const ci = Math.floor((t * neonPalette.length * 2.5) + rowIdx) % neonPalette.length;
+            color = neonPalette[ci];
+            // Pulse brightness and fade out toward end
+            alpha = (0.65 + 0.25 * Math.sin(t * Math.PI * 5)) * (1 - t * 0.6);
           } else {
-            // Single smooth sine flash
-            color = 0xffffff;
-            alpha = Math.sin(t * Math.PI) * 0.85;
+            // Sine flash tinted toward the row's piece color
+            const sinA = Math.sin(t * Math.PI);
+            color = rowColor;
+            alpha = sinA * 0.6;
           }
 
           this.animGfx.fillStyle(color, alpha);
           this.animGfx.fillRect(BOARD_X, BOARD_Y + r * CELL, COLS * CELL, CELL);
 
-          // Bright center line
-          this.animGfx.fillStyle(0xffffff, Math.min(1, alpha * 1.2));
+          // Thin bright center stripe
+          this.animGfx.fillStyle(0xffffff, alpha * 0.5);
           this.animGfx.fillRect(BOARD_X, BOARD_Y + r * CELL + Math.floor(CELL / 2) - 1, COLS * CELL, 2);
         });
       },
@@ -381,24 +376,36 @@ export class GameScene extends Phaser.Scene {
   private showChromaBlast(): void {
     const cx = BOARD_X + (COLS * CELL) / 2;
     const cy = BOARD_Y + (ROWS * CELL) / 2;
-
-    const txt = this.add.text(cx, cy, 'CHROMABLAST!', {
+    const baseStyle = {
       fontFamily: '"Share Tech Mono", monospace',
       fontSize: '26px',
-      color: '#ffffff',
-      stroke: '#bf00ff',
-      strokeThickness: 3,
-      shadow: { offsetX: 0, offsetY: 0, color: '#bf00ff', blur: 28, fill: true },
-    }).setOrigin(0.5).setDepth(20);
+      strokeThickness: 2,
+    };
+
+    // Three layers: offset chromatic aberration — pink behind-left, cyan behind-right, yellow center
+    const layers = [
+      { dx: -3, dy:  1, color: '#ff2d78', stroke: '#ff2d78', alpha: 0.7 },
+      { dx:  3, dy: -1, color: '#00d4ff', stroke: '#00d4ff', alpha: 0.7 },
+      { dx:  0, dy:  0, color: '#d4ff00', stroke: '#bf00ff', alpha: 1.0 },
+    ];
+
+    const texts = layers.map(({ dx, dy, color, stroke, alpha }) =>
+      this.add.text(cx + dx, cy + dy, 'CHROMABLAST!', {
+        ...baseStyle,
+        color,
+        stroke,
+        shadow: { offsetX: 0, offsetY: 0, color: stroke, blur: 22, fill: true },
+      }).setOrigin(0.5).setDepth(20).setAlpha(alpha),
+    );
 
     this.tweens.add({
-      targets: txt,
+      targets: texts,
       scaleX: 1.6,
       scaleY: 1.6,
       alpha: 0,
-      duration: 480,
+      duration: 520,
       ease: 'Power2.Out',
-      onComplete: () => txt.destroy(),
+      onComplete: () => texts.forEach(t => t.destroy()),
     });
   }
 
@@ -541,15 +548,18 @@ export class GameScene extends Phaser.Scene {
     const inset = 2;
 
     if (flash) {
-      // Bright white burst on lock
-      this.glowGfx.lineStyle(8, color, 0.35);
-      this.glowGfx.strokeRect(px + inset - 4, py + inset - 4, CELL - inset * 2 + 8, CELL - inset * 2 + 8);
-      this.glowGfx.lineStyle(4, 0xffffff, 0.5);
+      // Soft neon bloom in piece color — no harsh white
+      this.glowGfx.lineStyle(10, color, 0.3);
+      this.glowGfx.strokeRect(px + inset - 5, py + inset - 5, CELL - inset * 2 + 10, CELL - inset * 2 + 10);
+      this.glowGfx.lineStyle(5, color, 0.5);
       this.glowGfx.strokeRect(px + inset - 2, py + inset - 2, CELL - inset * 2 + 4, CELL - inset * 2 + 4);
 
-      this.gfx.fillStyle(0xffffff, 0.55);
+      // Tinted fill in piece color + small white inner highlight for depth
+      this.gfx.fillStyle(color, 0.32);
       this.gfx.fillRect(px + inset, py + inset, CELL - inset * 2, CELL - inset * 2);
-      this.gfx.lineStyle(2, 0xffffff, 1);
+      this.gfx.fillStyle(0xffffff, 0.12);
+      this.gfx.fillRect(px + inset + 3, py + inset + 3, CELL - inset * 2 - 6, Math.floor((CELL - inset * 2) * 0.45));
+      this.gfx.lineStyle(2, color, 1);
       this.gfx.strokeRect(px + inset, py + inset, CELL - inset * 2, CELL - inset * 2);
     } else {
       // Normal neon hollow block
