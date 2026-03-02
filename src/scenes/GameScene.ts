@@ -302,9 +302,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private doLineClear(rows: number[]): void {
+    // Splice all full rows first (descending keeps indices valid), then add empty rows
     const sorted = [...rows].sort((a, b) => b - a);
     for (const r of sorted) {
       this.board.splice(r, 1);
+    }
+    for (let i = 0; i < rows.length; i++) {
       this.board.unshift(new Array(COLS).fill(0));
     }
     const cleared = rows.length;
