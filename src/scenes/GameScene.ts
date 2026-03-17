@@ -79,6 +79,8 @@ export class GameScene extends Phaser.Scene {
   private animating = false;
   private paused = false;
 
+  get isPaused(): boolean { return this.paused; }
+
   private lockFlashing = false;
   private lockFlashCells: Array<{ col: number; row: number }> = [];
 
