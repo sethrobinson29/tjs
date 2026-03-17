@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
-import { sfxRotateCW, sfxLock, sfxLineClear, sfxChromaBlast, sfxPause } from '../audio';
+import { sfxRotateCW, sfxLock, sfxLineClear, sfxChromaBlast, sfxPause, sfxLevelUp, sfxBackToBack } from '../audio';
 import {
   COLS, ROWS, CELL,
   BOARD_X, BOARD_Y, SIDEBAR_X,
   CANVAS_WIDTH, CANVAS_HEIGHT,
-  GRAVITY_BASE, GRAVITY_MIN,
-  LINES_PER_LEVEL,
+  GRAVITY_BASE, GRAVITY_MIN, GRAVITY_LATE_START, GRAVITY_LATE_MIN,
+  BACK_TO_BACK_BONUS,
+  levelFromLines,
   SCORE_TABLE,
   DAS_DELAY, DAS_REPEAT,
 } from '../constants';
@@ -76,6 +77,8 @@ export class GameScene extends Phaser.Scene {
   private dasLeftActive = false;
   private dasRightActive = false;
 
+  private lastClearWas4 = false;
+
   private gameOver = false;
   private animating = false;
   private paused = false;
@@ -100,6 +103,7 @@ export class GameScene extends Phaser.Scene {
     this.score = 0;
     this.level = 1;
     this.lines = 0;
+    this.lastClearWas4 = false;
     this.holdIndex = -1;
     this.holdUsed = false;
 
@@ -185,7 +189,16 @@ export class GameScene extends Phaser.Scene {
 
   private resetGravity(): void {
     if (this.gravityTimer) this.gravityTimer.remove();
-    this.gravityMs = Math.max(GRAVITY_MIN, GRAVITY_BASE - (this.level - 1) * 70);
+    if (this.level >= GRAVITY_LATE_START) {
+      // Phase 2: every 5 levels past 20 shaves 10ms off, floor at GRAVITY_LATE_MIN
+      this.gravityMs = Math.max(
+        GRAVITY_LATE_MIN,
+        GRAVITY_MIN - Math.floor((this.level - GRAVITY_LATE_START) / 5) * 10,
+      );
+    } else {
+      // Phase 1: linear ramp capped at GRAVITY_MIN
+      this.gravityMs = Math.max(GRAVITY_MIN, GRAVITY_BASE - (this.level - 1) * 70);
+    }
     this.gravityTimer = this.time.addEvent({
       delay: this.gravityMs,
       callback: this.tick,
@@ -331,11 +344,22 @@ export class GameScene extends Phaser.Scene {
       this.board.unshift(new Array(COLS).fill(0));
     }
     const cleared = rows.length;
+    const isB2B = cleared === 4 && this.lastClearWas4;
+    this.lastClearWas4 = cleared === 4;
+
+    let points = (SCORE_TABLE[cleared] ?? 800) * this.level;
+    if (isB2B) {
+      points += Math.floor(points * BACK_TO_BACK_BONUS);
+      this.showBackToBack();
+      sfxBackToBack();
+    }
+
     this.lines += cleared;
-    this.score += (SCORE_TABLE[cleared] ?? 800) * this.level;
-    const newLevel = Math.floor(this.lines / LINES_PER_LEVEL) + 1;
+    this.score += points;
+    const newLevel = levelFromLines(this.lines);
     if (newLevel > this.level) {
       this.level = newLevel;
+      sfxLevelUp();
     }
     this.updateSidebarText();
   }
@@ -430,6 +454,78 @@ export class GameScene extends Phaser.Scene {
       scaleY: 1.6,
       alpha: 0,
       duration: 520,
+      ease: 'Power2.Out',
+      onComplete: () => texts.forEach(t => t.destroy()),
+    });
+  }
+
+  private showBackToBack(): void {
+    const cx = BOARD_X + (COLS * CELL) / 2;
+    const cy = BOARD_Y + (ROWS * CELL) / 2;
+
+    // Extra camera punch
+    this.cameras.main.shake(350, 0.012);
+    this.cameras.main.flash(250, 255, 200, 0, true); // golden flash
+
+    // Radiating burst rays
+    const burstGfx = this.add.graphics().setDepth(15);
+    const palette = PIECES.map(p => p.color);
+    const numRays = 20;
+    const maxRadius = Math.max(COLS * CELL, ROWS * CELL) * 0.85;
+
+    this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: 650,
+      ease: 'Power2.Out',
+      onUpdate: (tween) => {
+        const t = tween.getValue() as number;
+        burstGfx.clear();
+        for (let i = 0; i < numRays; i++) {
+          const angle = (i / numRays) * Math.PI * 2;
+          const r1 = t * maxRadius * 0.08;
+          const r2 = t * maxRadius;
+          const ci = (Math.floor(t * palette.length * 4) + i) % palette.length;
+          burstGfx.lineStyle(2.5, palette[ci], (1 - t) * 0.7);
+          burstGfx.lineBetween(
+            cx + Math.cos(angle) * r1, cy + Math.sin(angle) * r1,
+            cx + Math.cos(angle) * r2, cy + Math.sin(angle) * r2,
+          );
+        }
+      },
+      onComplete: () => burstGfx.destroy(),
+    });
+
+    // Five chromatic aberration text layers — positioned above center
+    const ty = cy - 70;
+    const baseStyle = {
+      fontFamily: '"Share Tech Mono", monospace',
+      fontSize: '20px',
+      strokeThickness: 2,
+    };
+    const layers = [
+      { dx: -5, dy:  2, color: '#ff2d78', stroke: '#ff2d78', alpha: 0.65 },
+      { dx:  5, dy: -2, color: '#00d4ff', stroke: '#00d4ff', alpha: 0.65 },
+      { dx: -2, dy: -3, color: '#ff9900', stroke: '#ff9900', alpha: 0.60 },
+      { dx:  2, dy:  3, color: '#00ff88', stroke: '#00ff88', alpha: 0.60 },
+      { dx:  0, dy:  0, color: '#ffffff', stroke: '#ffcc00', alpha: 1.00 },
+    ];
+
+    const texts = layers.map(({ dx, dy, color, stroke, alpha }) =>
+      this.add.text(cx + dx, ty + dy, 'BACK  TO  BACK!', {
+        ...baseStyle,
+        color,
+        stroke,
+        shadow: { offsetX: 0, offsetY: 0, color: stroke, blur: 30, fill: true },
+      }).setOrigin(0.5).setDepth(25).setAlpha(alpha).setScale(0.4),
+    );
+
+    this.tweens.add({
+      targets: texts,
+      scaleX: 2.4,
+      scaleY: 2.4,
+      alpha: 0,
+      duration: 750,
       ease: 'Power2.Out',
       onComplete: () => texts.forEach(t => t.destroy()),
     });

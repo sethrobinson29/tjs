@@ -97,3 +97,21 @@ export function sfxChromaBlast(): void {
 }
 export function sfxPause():       void { note(520, 520, .2,  .005, .02, .1); }
 export function sfxSettings():    void { note(700, 420, .18, .002, 0,   .05, 'square'); }
+
+// Ascending pentatonic jingle — celebratory level-up, Mario-mushroom-inspired but distinct key/timbre
+export function sfxLevelUp(): void {
+  note(294, 294, .35, .005, .055, .03, 'square', 0.00);  // D4
+  note(370, 370, .35, .005, .055, .03, 'square', 0.07);  // F#4
+  note(440, 440, .35, .005, .055, .03, 'square', 0.14);  // A4
+  note(554, 554, .35, .005, .055, .03, 'square', 0.21);  // C#5
+  note(740, 760, .45, .005, .12,  .18, 'square', 0.28);  // F#5 slight upbend — final flourish
+}
+
+// Double-impact burst — two rapid hits to convey "back to back"
+export function sfxBackToBack(): void {
+  note(220,  440,  .5,  .005, .04, .25, 'sawtooth', 0.00);
+  note(440,  880,  .4,  .01,  .06, .25, 'sine',     0.02);
+  note(880,  1760, .35, .02,  .05, .20, 'sine',     0.05);
+  note(1760, 3520, .30, .01,  .04, .20, 'sine',     0.08);
+  note(330,  330,  .20, .005, .02, .10, 'triangle', 0.12);
+}
