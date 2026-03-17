@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { sfxRotateCW, sfxLock, sfxLineClear, sfxChromaBlast, sfxPause } from '../audio';
 import {
   COLS, ROWS, CELL,
   BOARD_X, BOARD_Y, SIDEBAR_X,
@@ -79,6 +80,8 @@ export class GameScene extends Phaser.Scene {
   private animating = false;
   private paused = false;
 
+  get isPaused(): boolean { return this.paused; }
+
   private lockFlashing = false;
   private lockFlashCells: Array<{ col: number; row: number }> = [];
 
@@ -138,6 +141,21 @@ export class GameScene extends Phaser.Scene {
     this.paused = !this.paused;
     this.gravityTimer.paused = this.paused;
     this.pauseOverlay.setVisible(this.paused);
+    sfxPause();
+  }
+
+  suspendForSettings(): void {
+    if (!this.paused && !this.gameOver) {
+      this.paused = true;
+      this.gravityTimer.paused = true;
+    }
+  }
+
+  resumeFromSettings(): void {
+    if (this.paused && !this.pauseOverlay.visible && !this.gameOver) {
+      this.paused = false;
+      this.gravityTimer.paused = false;
+    }
   }
 
   private buildPauseOverlay(): void {
@@ -224,6 +242,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    sfxLock();
     this.lockFlashing = true;
     this.animating = true;
     this.gravityTimer.paused = true;
@@ -259,6 +278,7 @@ export class GameScene extends Phaser.Scene {
         this.active.rotation = nextRot;
         this.active.x += kick;
         this.render();
+        sfxRotateCW();
         return;
       }
     }
@@ -333,6 +353,9 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.shake(220, 0.005);
       this.cameras.main.flash(180, 100, 0, 200, true); // softer violet flash
       this.showChromaBlast();
+      sfxChromaBlast();
+    } else {
+      sfxLineClear();
     }
 
     this.tweens.addCounter({

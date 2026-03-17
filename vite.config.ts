@@ -6,7 +6,4 @@ export default defineConfig({
     target: 'esnext',
     chunkSizeWarningLimit: 2000, // Phaser is ~1.5 MB; suppress false-alarm warning
   },
-  optimizeDeps: {
-    exclude: ['phaser'],
-  },
 });

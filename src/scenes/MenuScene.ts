@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../constants';
+import { startMusic } from '../audio';
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -75,6 +76,7 @@ export class MenuScene extends Phaser.Scene {
     // Start on Enter
     const enter = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
     enter.once('down', () => {
+      startMusic();
       this.scene.start('GameScene');
     });
   }

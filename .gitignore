@@ -2,3 +2,5 @@ node_modules/
 dist/
 .idea/
 CLAUDE.md
+context-dump.md
+handoff.md
