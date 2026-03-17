@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../constants';
-import { setVolume, setMuted, getVolume, getMuted } from '../audio';
+import { setVolume, setMuted, getVolume, getMuted, setSfxVolume, getSfxVolume, sfxSettings } from '../audio';
 
 const GEAR_COLOR = '#ff9500';
 
@@ -29,7 +29,7 @@ const PANEL_HTML = `
     color: #555577;
     margin-bottom: 10px;
   }
-  #sp-vol-slider {
+  .sp-slider {
     -webkit-appearance: none;
     appearance: none;
     width: 100%;
@@ -41,7 +41,7 @@ const PANEL_HTML = `
     margin-bottom: 24px;
     display: block;
   }
-  #sp-vol-slider::-webkit-slider-thumb {
+  .sp-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     width: 14px;
     height: 14px;
@@ -50,7 +50,7 @@ const PANEL_HTML = `
     cursor: pointer;
     border: none;
   }
-  #sp-vol-slider::-moz-range-thumb {
+  .sp-slider::-moz-range-thumb {
     width: 14px;
     height: 14px;
     background: #ff9500;
@@ -111,8 +111,10 @@ const PANEL_HTML = `
 </style>
 <div id="sp-wrap">
   <div id="sp-title">SETTINGS</div>
-  <div class="sp-label">VOLUME</div>
-  <input id="sp-vol-slider" type="range" min="0" max="1" step="0.01">
+  <div class="sp-label">MUSIC VOLUME</div>
+  <input id="sp-vol-slider" class="sp-slider" type="range" min="0" max="1" step="0.01">
+  <div class="sp-label">SFX VOLUME</div>
+  <input id="sp-sfx-slider" class="sp-slider" type="range" min="0" max="1" step="0.01">
   <div class="sp-mute-row">
     <div class="sp-mute-label">MUTE</div>
     <div id="sp-mute-box"></div>
@@ -160,15 +162,18 @@ export class SettingsScene extends Phaser.Scene {
 
   private wirePanel(): void {
     const el = this.panelDom.node as HTMLElement;
-    const slider   = el.querySelector('#sp-vol-slider') as HTMLInputElement;
-    const muteBox  = el.querySelector('#sp-mute-box')   as HTMLDivElement;
-    const closeBtn = el.querySelector('#sp-close-btn')  as HTMLButtonElement;
-    const menuBtn  = el.querySelector('#sp-menu-btn')   as HTMLButtonElement;
+    const volSlider = el.querySelector('#sp-vol-slider') as HTMLInputElement;
+    const sfxSlider = el.querySelector('#sp-sfx-slider') as HTMLInputElement;
+    const muteBox   = el.querySelector('#sp-mute-box')   as HTMLDivElement;
+    const closeBtn  = el.querySelector('#sp-close-btn')  as HTMLButtonElement;
+    const menuBtn   = el.querySelector('#sp-menu-btn')   as HTMLButtonElement;
 
-    slider.value = String(getVolume());
+    volSlider.value = String(getVolume());
+    sfxSlider.value = String(getSfxVolume());
     muteBox.textContent = getMuted() ? '✕' : '';
 
-    slider.addEventListener('input', () => setVolume(parseFloat(slider.value)));
+    volSlider.addEventListener('input', () => setVolume(parseFloat(volSlider.value)));
+    sfxSlider.addEventListener('input', () => setSfxVolume(parseFloat(sfxSlider.value)));
 
     muteBox.addEventListener('click', () => {
       setMuted(!getMuted());
@@ -190,5 +195,12 @@ export class SettingsScene extends Phaser.Scene {
     this.panelVisible = !this.panelVisible;
     this.panelDom.setVisible(this.panelVisible);
     this.gearText.setAlpha(this.panelVisible ? 1 : 0.5);
+    const gs = this.scene.get('GameScene') as any;
+    if (this.panelVisible) {
+      sfxSettings();
+      gs?.suspendForSettings?.();
+    } else {
+      gs?.resumeFromSettings?.();
+    }
   }
 }
