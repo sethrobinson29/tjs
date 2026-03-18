@@ -6,7 +6,7 @@ function loadCookie(key: string): string | null {
 }
 
 function saveCookie(key: string, value: string): void {
-  document.cookie = `${key}=${value}; max-age=31536000; path=/`;
+  document.cookie = `${key}=${value}; max-age=2592000; path=/`;
 }
 
 // ─── Music ────────────────────────────────────────────────────────────────────
@@ -46,6 +46,15 @@ export function setSfxVolume(v: number): void {
   saveCookie('chromablocks_sfx_vol', String(sfxVol));
 }
 export function getSfxVolume(): number { return sfxVol; }
+
+let _colorblind = false;
+const savedCB = loadCookie('chromablocks_cb');
+if (savedCB !== null) _colorblind = savedCB === '1';
+export function getColorblind(): boolean { return _colorblind; }
+export function setColorblind(v: boolean): void {
+  _colorblind = v;
+  saveCookie('chromablocks_cb', v ? '1' : '0');
+}
 
 let sfxCtx: AudioContext | null = null;
 
@@ -97,3 +106,27 @@ export function sfxChromaBlast(): void {
 }
 export function sfxPause():       void { note(520, 520, .2,  .005, .02, .1); }
 export function sfxSettings():    void { note(700, 420, .18, .002, 0,   .05, 'square'); }
+
+// Ascending pentatonic jingle — celebratory level-up, Mario-mushroom-inspired but distinct key/timbre
+export function sfxLevelUp(): void {
+  note(294, 294, .35, .005, .055, .03, 'square', 0.00);  // D4
+  note(370, 370, .35, .005, .055, .03, 'square', 0.07);  // F#4
+  note(440, 440, .35, .005, .055, .03, 'square', 0.14);  // A4
+  note(554, 554, .35, .005, .055, .03, 'square', 0.21);  // C#5
+  note(740, 760, .45, .005, .12,  .18, 'square', 0.28);  // F#5 slight upbend — final flourish
+}
+
+// Escalating burst — pitch shifts up with each consecutive chromablast (streak >= 2)
+export function sfxChromaStreak(streak: number): void {
+  // Each additional streak level raises pitch by a minor third (~1.19x), capped at 4x
+  const m = Math.min(Math.pow(1.19, streak - 2), 4);
+  const cap = (f: number) => Math.min(f, 4000);
+  note(cap(220 * m),  cap(440 * m),  .5,  .005, .04, .25, 'sawtooth', 0.00);
+  note(cap(440 * m),  cap(880 * m),  .4,  .01,  .06, .25, 'sine',     0.02);
+  note(cap(880 * m),  cap(1760 * m), .35, .02,  .05, .20, 'sine',     0.05);
+  note(cap(1760 * m), cap(3520 * m), .30, .01,  .04, .20, 'sine',     0.08);
+  note(330,           330,           .20, .005, .02, .10, 'triangle', 0.12);
+  // Add an extra shimmer layer for each streak level beyond 2
+  if (streak >= 3) note(cap(2200 * m), cap(3300 * m), .25, .01, .03, .18, 'sine', 0.06);
+  if (streak >= 4) note(cap(3000 * m), cap(4000),     .20, .01, .02, .14, 'sine', 0.09);
+}
