@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../constants';
-import { setVolume, setMuted, getVolume, getMuted, setSfxVolume, getSfxVolume, sfxSettings } from '../audio';
+import { setVolume, setMuted, getVolume, getMuted, setSfxVolume, getSfxVolume, sfxSettings, getColorblind, setColorblind } from '../audio';
 
 const GEAR_COLOR = '#ff9500';
 
@@ -69,7 +69,7 @@ const PANEL_HTML = `
     color: #555577;
     flex: 1;
   }
-  #sp-mute-box {
+  #sp-mute-box, #sp-cb-box {
     width: 18px;
     height: 18px;
     border: 1px solid #ff9500;
@@ -119,6 +119,10 @@ const PANEL_HTML = `
     <div class="sp-mute-label">MUTE</div>
     <div id="sp-mute-box"></div>
   </div>
+  <div class="sp-mute-row">
+    <div class="sp-mute-label">COLORBLIND  MODE</div>
+    <div id="sp-cb-box"></div>
+  </div>
   <button id="sp-close-btn" class="sp-btn">CLOSE</button>
   <button id="sp-menu-btn" class="sp-btn">MAIN  MENU</button>
 </div>
@@ -165,12 +169,14 @@ export class SettingsScene extends Phaser.Scene {
     const volSlider = el.querySelector('#sp-vol-slider') as HTMLInputElement;
     const sfxSlider = el.querySelector('#sp-sfx-slider') as HTMLInputElement;
     const muteBox   = el.querySelector('#sp-mute-box')   as HTMLDivElement;
+    const cbBox     = el.querySelector('#sp-cb-box')     as HTMLDivElement;
     const closeBtn  = el.querySelector('#sp-close-btn')  as HTMLButtonElement;
     const menuBtn   = el.querySelector('#sp-menu-btn')   as HTMLButtonElement;
 
     volSlider.value = String(getVolume());
     sfxSlider.value = String(getSfxVolume());
     muteBox.textContent = getMuted() ? '✕' : '';
+    cbBox.textContent = getColorblind() ? '✕' : '';
 
     volSlider.addEventListener('input', () => setVolume(parseFloat(volSlider.value)));
     sfxSlider.addEventListener('input', () => setSfxVolume(parseFloat(sfxSlider.value)));
@@ -178,6 +184,11 @@ export class SettingsScene extends Phaser.Scene {
     muteBox.addEventListener('click', () => {
       setMuted(!getMuted());
       muteBox.textContent = getMuted() ? '✕' : '';
+    });
+
+    cbBox.addEventListener('click', () => {
+      setColorblind(!getColorblind());
+      cbBox.textContent = getColorblind() ? '✕' : '';
     });
 
     closeBtn.addEventListener('click', () => this.togglePanel());

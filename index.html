@@ -67,7 +67,7 @@
         box-shadow: 0 0 0 2px rgba(160,100,255,0.5), 0 0 60px rgba(120,60,255,0.35);
       }
 
-      /* ── Tetromino pieces ────────────────────────────────────────────── */
+      /* ── Background pieces ───────────────────────────────────────────── */
       .bg-piece {
         position: fixed;
         z-index: -1;
@@ -168,7 +168,7 @@
           ctx.fill();
         }
 
-        // --- Tetromino pieces as CSS grid ---
+        // --- Falling pieces as CSS grid ---
         const PIECES = [
           { shape: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], color: '#00d4ff' }, // I
           { shape: [[0,1,1,0],[0,1,1,0],[0,0,0,0],[0,0,0,0]], color: '#d4ff00' }, // O

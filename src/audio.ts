@@ -6,7 +6,7 @@ function loadCookie(key: string): string | null {
 }
 
 function saveCookie(key: string, value: string): void {
-  document.cookie = `${key}=${value}; max-age=31536000; path=/`;
+  document.cookie = `${key}=${value}; max-age=2592000; path=/`;
 }
 
 // ─── Music ────────────────────────────────────────────────────────────────────
@@ -46,6 +46,15 @@ export function setSfxVolume(v: number): void {
   saveCookie('chromablocks_sfx_vol', String(sfxVol));
 }
 export function getSfxVolume(): number { return sfxVol; }
+
+let _colorblind = false;
+const savedCB = loadCookie('chromablocks_cb');
+if (savedCB !== null) _colorblind = savedCB === '1';
+export function getColorblind(): boolean { return _colorblind; }
+export function setColorblind(v: boolean): void {
+  _colorblind = v;
+  saveCookie('chromablocks_cb', v ? '1' : '0');
+}
 
 let sfxCtx: AudioContext | null = null;
 

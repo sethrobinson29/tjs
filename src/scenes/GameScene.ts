@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { sfxRotateCW, sfxLock, sfxLineClear, sfxChromaBlast, sfxPause, sfxLevelUp, sfxChromaStreak } from '../audio';
+import { sfxRotateCW, sfxLock, sfxLineClear, sfxChromaBlast, sfxPause, sfxLevelUp, sfxChromaStreak, getColorblind } from '../audio';
 import {
   COLS, ROWS, CELL,
   BOARD_X, BOARD_Y, SIDEBAR_X,
@@ -372,9 +372,9 @@ export class GameScene extends Phaser.Scene {
   private playLineClearAnim(rows: number[], callback: () => void): void {
     const is4Line = rows.length === 4;
     const duration = is4Line ? 340 : 200;
-    const neonPalette = PIECES.map(p => p.color);
+    const neonPalette = PIECES.map(p => getColorblind() ? p.colorCB : p.color);
     // Pick the dominant row color for single-clear tint
-    const rowColor = PIECES[this.board[rows[0]].find(c => c !== 0)! - 1]?.color ?? 0x00d4ff;
+    const rowColor = (() => { const p = PIECES[this.board[rows[0]].find(c => c !== 0)! - 1]; return p ? this.pc(p) : 0x00d4ff; })();
 
     if (is4Line) {
       this.cameras.main.shake(220, 0.005);
@@ -472,7 +472,7 @@ export class GameScene extends Phaser.Scene {
 
     // Radiating burst rays
     const burstGfx = this.add.graphics().setDepth(15);
-    const palette = PIECES.map(p => p.color);
+    const palette = PIECES.map(p => getColorblind() ? p.colorCB : p.color);
     const numRays = 20;
     const maxRadius = Math.max(COLS * CELL, ROWS * CELL) * 0.85;
 
@@ -597,6 +597,11 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // Returns the correct color for a piece respecting colorblind mode
+  private pc(piece: Piece): number {
+    return getColorblind() ? piece.colorCB : piece.color;
+  }
+
   // ─── Rendering ────────────────────────────────────────────────────────────
 
   private render(): void {
@@ -636,7 +641,7 @@ export class GameScene extends Phaser.Scene {
         if (!idx) continue;
         const piece = PIECES[idx - 1];
         const flashing = this.lockFlashing && this.lockFlashCells.some(fc => fc.col === c && fc.row === r);
-        this.drawCell(c, r, piece.color, flashing);
+        this.drawCell(c, r, this.pc(piece), flashing);
       }
     }
   }
@@ -647,7 +652,7 @@ export class GameScene extends Phaser.Scene {
     for (let r = 0; r < matrix.length; r++) {
       for (let c = 0; c < matrix[r].length; c++) {
         if (!matrix[r][c]) continue;
-        this.drawCell(this.active.x + c, this.active.y + r, piece.color, false);
+        this.drawCell(this.active.x + c, this.active.y + r, this.pc(piece), false);
       }
     }
   }
@@ -662,7 +667,7 @@ export class GameScene extends Phaser.Scene {
     for (let r = 0; r < matrix.length; r++) {
       for (let c = 0; c < matrix[r].length; c++) {
         if (!matrix[r][c]) continue;
-        this.drawCellGhost(ghost.x + c, ghost.y + r, piece.color);
+        this.drawCellGhost(ghost.x + c, ghost.y + r, this.pc(piece));
       }
     }
   }
@@ -774,9 +779,9 @@ export class GameScene extends Phaser.Scene {
         if (!matrix[r][c]) continue;
         const px = sx + c * miniCell;
         const py = sy + r * miniCell;
-        this.gfx.lineStyle(1, piece.color, 1);
+        this.gfx.lineStyle(1, this.pc(piece), 1);
         this.gfx.strokeRect(px, py, miniCell - 1, miniCell - 1);
-        this.gfx.fillStyle(piece.color, 0.1);
+        this.gfx.fillStyle(this.pc(piece), 0.1);
         this.gfx.fillRect(px, py, miniCell - 1, miniCell - 1);
       }
     }
