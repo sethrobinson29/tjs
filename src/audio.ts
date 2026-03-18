@@ -107,11 +107,17 @@ export function sfxLevelUp(): void {
   note(740, 760, .45, .005, .12,  .18, 'square', 0.28);  // F#5 slight upbend — final flourish
 }
 
-// Double-impact burst — two rapid hits to convey "back to back"
-export function sfxBackToBack(): void {
-  note(220,  440,  .5,  .005, .04, .25, 'sawtooth', 0.00);
-  note(440,  880,  .4,  .01,  .06, .25, 'sine',     0.02);
-  note(880,  1760, .35, .02,  .05, .20, 'sine',     0.05);
-  note(1760, 3520, .30, .01,  .04, .20, 'sine',     0.08);
-  note(330,  330,  .20, .005, .02, .10, 'triangle', 0.12);
+// Escalating burst — pitch shifts up with each consecutive chromablast (streak >= 2)
+export function sfxChromaStreak(streak: number): void {
+  // Each additional streak level raises pitch by a minor third (~1.19x), capped at 4x
+  const m = Math.min(Math.pow(1.19, streak - 2), 4);
+  const cap = (f: number) => Math.min(f, 4000);
+  note(cap(220 * m),  cap(440 * m),  .5,  .005, .04, .25, 'sawtooth', 0.00);
+  note(cap(440 * m),  cap(880 * m),  .4,  .01,  .06, .25, 'sine',     0.02);
+  note(cap(880 * m),  cap(1760 * m), .35, .02,  .05, .20, 'sine',     0.05);
+  note(cap(1760 * m), cap(3520 * m), .30, .01,  .04, .20, 'sine',     0.08);
+  note(330,           330,           .20, .005, .02, .10, 'triangle', 0.12);
+  // Add an extra shimmer layer for each streak level beyond 2
+  if (streak >= 3) note(cap(2200 * m), cap(3300 * m), .25, .01, .03, .18, 'sine', 0.06);
+  if (streak >= 4) note(cap(3000 * m), cap(4000),     .20, .01, .02, .14, 'sine', 0.09);
 }

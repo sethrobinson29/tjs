@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { sfxRotateCW, sfxLock, sfxLineClear, sfxChromaBlast, sfxPause, sfxLevelUp, sfxBackToBack } from '../audio';
+import { sfxRotateCW, sfxLock, sfxLineClear, sfxChromaBlast, sfxPause, sfxLevelUp, sfxChromaStreak } from '../audio';
 import {
   COLS, ROWS, CELL,
   BOARD_X, BOARD_Y, SIDEBAR_X,
@@ -77,7 +77,7 @@ export class GameScene extends Phaser.Scene {
   private dasLeftActive = false;
   private dasRightActive = false;
 
-  private lastClearWas4 = false;
+  private chromaStreak = 0;
 
   private gameOver = false;
   private animating = false;
@@ -103,7 +103,7 @@ export class GameScene extends Phaser.Scene {
     this.score = 0;
     this.level = 1;
     this.lines = 0;
-    this.lastClearWas4 = false;
+    this.chromaStreak = 0;
     this.holdIndex = -1;
     this.holdUsed = false;
 
@@ -344,14 +344,17 @@ export class GameScene extends Phaser.Scene {
       this.board.unshift(new Array(COLS).fill(0));
     }
     const cleared = rows.length;
-    const isB2B = cleared === 4 && this.lastClearWas4;
-    this.lastClearWas4 = cleared === 4;
+    if (cleared === 4) {
+      this.chromaStreak++;
+    } else {
+      this.chromaStreak = 0;
+    }
 
     let points = (SCORE_TABLE[cleared] ?? 800) * this.level;
-    if (isB2B) {
+    if (this.chromaStreak >= 2) {
       points += Math.floor(points * BACK_TO_BACK_BONUS);
       this.showBackToBack();
-      sfxBackToBack();
+      sfxChromaStreak(this.chromaStreak);
     }
 
     this.lines += cleared;
